@@ -1027,7 +1027,7 @@ function setMedia() {
         title: "アマヤドリ",
         artist: "雨音と集中の部屋",
         album: "アマヤドリ",
-        artwork: [{ src: new URL("../art/room.png", import.meta.url).href, sizes: "1536x1024", type: "image/png" }],
+        artwork: [{ src: new URL("../art/room.jpg", import.meta.url).href, sizes: "1536x1024", type: "image/jpeg" }],
       });
     }
     ms.setActionHandler("play", () => {
