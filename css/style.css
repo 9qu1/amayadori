@@ -695,7 +695,8 @@ body.ui-hidden #timer {
   body {
     overflow-x: hidden;
     overflow-y: auto;
-    background: linear-gradient(180deg, #1a1411 0, #121014 40vh, var(--bg) 100vh);
+    /* 繰り返さない（画面1枚ごとに色が段になって戻らないように） */
+    background: var(--bg) linear-gradient(180deg, #1a1411 0, #121014 40vh, var(--bg) 100vh) no-repeat;
     background-attachment: scroll;
   }
   #scene {

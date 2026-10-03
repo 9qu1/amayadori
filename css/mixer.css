@@ -259,7 +259,7 @@
 /* やや狭い枠：名前の列を細くして、長い名前は2行に */
 @container (max-width: 300px) {
   .mx-row {
-    grid-template-columns: 18px 62px minmax(0, 1fr) 2em;
+    grid-template-columns: 18px 74px minmax(0, 1fr) 2em; /* 「ノートと鉛筆」（12px×6字）が1行に収まる幅 */
     column-gap: 8px;
   }
   .mx-icon { width: 18px; height: 18px; }
