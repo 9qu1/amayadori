@@ -6,8 +6,12 @@
 //   つなぎの重ね（3 秒）はファイルに焼き込み済み。AudioBufferSourceNode の loop と loopStart/loopEnd で回すだけなので、
 //   予約がなく、隠れたタブでも途切れない。ファイルの前後には詰め物（ループの続きの写し）があり、頭の詰め物がずれても崩れない。
 // - タイピング・ノートは、1本のファイルに並んだ「かたまり」を、ランダムな順番と間隔でオーディオの時計に先に予約して鳴らす。
-// - 音の流れ：各音 → 音量 → 休憩中の下げ → 門（ロック中モードで閉じる）→ マスター → コンプ（リミッター代わり）→ 出力
+//   音量は予約した音に焼き込まず、音ごとの GainNode（つまみ）を通すので、つまみはすぐ効く。
+//   ただし、ときどき鳴る音なので、鳴っていない間につまみを動かしたときは 1 つすぐ鳴らす（nudge）。
+// - 音の流れ：各音 → 音量 → 休憩中の下げ → マスター → コンプ（リミッター代わり）→ 消音 → 出力
+//   合図（chime）はマスターの後ろからコンプへ入る。消音は合図も含めた全体に効く。
 // - 合図（chime）だけは合成のまま。
+// - ロック中も流すモード（100 秒の WAV を <audio> で鳴らす）は 2026-10-03 にやめた（iPhone で働かなかったため）。
 
 const SOUNDS = Object.freeze([
   Object.freeze({ id: "rain", label: "雨" }),
@@ -24,20 +28,24 @@ const MIN_V = 0.0005;
 const MANIFEST_URL = new URL("../sounds/manifest.json", import.meta.url);
 const FILE_BASE = new URL("../", import.meta.url); // manifest の src は public/ から
 // つまみ 1.0・全体 1.0 のときの持ち上げ（dB）。ファイルの大きさ（manifest の lufs）からの差。
-// 雨 −17・焚き火 −19・タイピング −23・ページ −17・鉛筆 −20 LUFS くらいになる
-const LEVEL_DB = { rain: 5, fire: 6.5, typing: 5, pages: 8 };
+// 雨 −20・焚き火 −22・タイピング −23・ページ −17・鉛筆 −20 LUFS くらいになる
+// 10/3: 雨と焚き火は「ほかより少し大きい」（iPhone で確認）ので 3dB 下げた（雨 5→2・焚き火 6.5→3.5）
+const LEVEL_DB = { rain: 2, fire: 3.5, typing: 5, pages: 8 };
 const KIND_DB = { page: 0, pencil: 2 }; // ノートの中の種類ごとの差（鉛筆は小さい音なので少し上げる）
 // 左右の位置（-1 左〜+1 右）。絵の右端にストーブ、左寄りに机の女性
 const PAN = { fire: 0.25, typing: 0.15, page: -0.2, pencil: -0.25 };
 const AHEAD = 4; // 単発の予約：これだけ先まで入れておく（秒）
 const AHEAD_HIDDEN = 75; // 隠れたタブ：タイマーが 1 分に 1 回まで間引かれても途切れないように
 const PUMP_MS = 1000;
-const LOCK_SEC = 100; // ロック中モードのループの長さ（秒）
-const LOCK_XF = 3; // その継ぎ目の重ね（秒）
-// ロック中モードの WAV は再生の場と同じ速さ（ふつう 48000）で作る。録音はその速さでデコード済みなので、描き出しで変換しない（高い音が丸くならない）
-const lockRate = () => (ctx ? ctx.sampleRate : 48000);
-const LIMITER_MAKEUP = 1.15; // コンプの自動持ち上げぶん（Chrome で +1.2dB と測った。ロック中モードの WAV で合わせる）
-const OUT_TRIM = 0.84; // コンプの後ろで少し下げる（自動の持ち上げで 1.0 を超えて割れないように）
+const NUDGE_IDLE_MS = 150; // つまみが止まってから「1 つすぐ鳴らす」まで（動かすたびには鳴らさない）
+const NUDGE_WITHIN = 1.5; // これより早く鳴る音があれば、すぐ鳴らす必要はない（秒）
+const QUICK_LEAD = 0.05; // すぐ鳴らす 1 つ目は、頭の無音の余白（0.1 秒）のうちこれだけ飛ばす
+const VOL_TAU = 0.035; // つまみの変化の時定数（秒）。90% まで約 0.08 秒
+const MUTE_TAU = 0.03; // 消音・戻すの時定数（秒）。0.15 秒でほぼ 0（-43dB）、0.18 秒でちょうど 0
+const MUTE_ZERO = 0.18;
+const MUTE_SUSPEND_MS = 3000; // 消音がこれだけ続いたら、電池のため音の処理を止める（戻すときは押した操作の中で再開）
+const PREDECODE_MAX_MB = 24; // 音量 0 の音を先にデコードしておく上限（デコード後の大きさ。タイピング 20MB・ノート 13MB）
+const OUT_TRIM = 0.84; // コンプの後ろで少し下げる（コンプの自動の持ち上げ約 +1.2dB で 1.0 を超えて割れないように）
 
 const isIOS = (() => {
   try {
@@ -100,7 +108,7 @@ function soundInput(c, id, dest) {
   return p;
 }
 
-// ================= 単発の並び（予約係の中身。本番もロック中モードも確かめ用も同じ） =================
+// ================= 単発の並び（予約係の中身。本番も確かめ用も同じ） =================
 // 同じかたまりが続かないように選ぶ（直近 k 個を避ける）
 function pickAvoiding(cands, recent, rand, k) {
   const n = Math.min(k, cands.length - 1); // 候補が 1 つなら避けない（slice(-0) は全部になる）
@@ -114,10 +122,18 @@ const clipEvent = (meta, i, t, kind, gainDb, pan, rate = 1) => {
   const c = meta.clips[i];
   return { t, clip: i, kind, start: c.start, end: c.end, gain: dB(gainDb), pan, rate, dur: (c.end - c.start) / rate };
 };
+// すぐ鳴らす 1 つ目：頭の無音を少し飛ばす（AAC の頭の詰め物のずれ 0.05 秒以下は、残りの余白に収まる）
+function trimHead(meta, e) {
+  const s = Math.min(QUICK_LEAD, (Number(meta.marginSec) || 0.1) / 2);
+  e.start += s;
+  e.dur = Math.max(0.01, e.dur - s / e.rate);
+  return e;
+}
 
 // タイピング：かたまり → 1〜6 秒の間 → かたまり…。ときどき考える間（5〜15 秒）。
 // キーボードは 1 回の集中のあいだ同じ（getKb で外から変えられる）。速打ちは少なめに
-function typingPlan(meta, rand, t0, { getKb } = {}) {
+// quick: つまみを上げて鳴らし始めたとき。最初の 1 つをすぐ鳴らす（上げたのに何も起きない、をなくす）
+function typingPlan(meta, rand, t0, { getKb, quick } = {}) {
   const R = (a, b) => a + (b - a) * rand();
   const sets = {
     desk: clipIdx(meta, (c) => c.keyboard !== "laptop" && c.pace !== "fast"),
@@ -126,7 +142,8 @@ function typingPlan(meta, rand, t0, { getKb } = {}) {
   };
   const all = meta.clips.map((_, i) => i);
   let kb = rand() < 0.6 ? "desk" : "laptop";
-  let t = t0 + R(0.3, 1.5);
+  let t = t0 + (quick ? R(0, 0.03) : R(0.3, 1.5));
+  let first = !!quick;
   const recent = [];
   return {
     next() {
@@ -137,6 +154,7 @@ function typingPlan(meta, rand, t0, { getKb } = {}) {
       recent.push(i);
       if (recent.length > 8) recent.shift();
       const e = clipEvent(meta, i, t, "typing", R(-1.5, 1.5), PAN.typing + R(-0.04, 0.04), 1 + R(-0.025, 0.025));
+      if (first) { trimHead(meta, e); first = false; }
       t += e.dur + (rand() < 0.18 ? R(5, 15) : R(1, 6));
       return e;
     },
@@ -144,7 +162,7 @@ function typingPlan(meta, rand, t0, { getKb } = {}) {
 }
 
 // ノート：15〜60 秒に 1 回めくる（ときどき 2〜3 枚続けて）。その間に鉛筆で書く音をときどき
-function pagesPlan(meta, rand, t0) {
+function pagesPlan(meta, rand, t0, { quick } = {}) {
   const R = (a, b) => a + (b - a) * rand();
   const pages = clipIdx(meta, (c) => c.kind === "page");
   const pencils = clipIdx(meta, (c) => c.kind === "pencil");
@@ -152,7 +170,8 @@ function pagesPlan(meta, rand, t0) {
   const span = (i) => meta.clips[i].end - meta.clips[i].start; // 速さ 1 のときの長さ
   const q = [];
   const recentP = [], recentW = [];
-  let flipAt = t0 + R(1, 6);
+  let flipAt = t0 + (quick ? R(0, 0.03) : R(1, 6));
+  let first = !!quick;
   const remember = (arr, i) => { arr.push(i); if (arr.length > 8) arr.shift(); };
   function cycle() {
     let t = flipAt;
@@ -162,6 +181,7 @@ function pagesPlan(meta, rand, t0) {
         const i = pickAvoiding(pages, recentP, rand, 4);
         remember(recentP, i);
         const e = clipEvent(meta, i, t, "page", KIND_DB.page + R(-2, 1), PAN.page + R(-0.05, 0.05), 1 + R(-0.04, 0.04));
+        if (first) { trimHead(meta, e); first = false; }
         q.push(e);
         t += e.dur - 2 * m + R(0.25, 0.9); // 前のめくりが終わってから少しして次
       }
@@ -191,6 +211,7 @@ function pagesPlan(meta, rand, t0) {
 const PLANS = { typing: typingPlan, pages: pagesPlan };
 
 // 1 つの単発を鳴らす（start〜end は前後の無音込み。頭の詰め物が少しずれても欠けない）
+// ここで掛けるのはかたまりごとの差だけ。つまみの音量は dest（音ごとの GainNode）で掛かる
 function playEvent(c, E, e, dest, onEnd) {
   const src = c.createBufferSource();
   src.buffer = E.buf;
@@ -234,8 +255,8 @@ let failMsg = "";
 const vol = { ...DEFAULT_VOL };
 let master = DEFAULT_MASTER;
 let ducked = false;
-let live = true; // Web Audio で環境音を鳴らしているか（ロック中モードでは false）
-let liveTimer = 0;
+let muted = false; // 消音（保存しない。開き直したら音が出る）
+let muteTimer = 0;
 const status = Object.fromEntries(IDS.map((id) => [id, "waiting"])); // waiting | loading | ready | error
 const failedAt = {};
 const buffers = {}; // id → { loops: [層…] } または { events: {buf, clips, gain…} }
@@ -243,15 +264,16 @@ const loadP = {};
 const players = {};
 const gains = {};
 const stopTimers = {};
+const nudgeTimers = {};
+const quick = {}; // つまみで上げて鳴らし始める音（最初の 1 つをすぐ鳴らす）
 let manifest = null, manifestP = null;
-const bytesCache = new Map(); // 取りに行っている途中のファイル（url → Promise<ArrayBuffer>）。デコードしたら消す
-let limiter = null, outTrim = null, masterGain = null, duckGain = null, liveGate = null, chimeBus = null, chimeVerb = null;
+const bytesCache = new Map(); // 取りに行っている途中・取っておいたファイル（url → Promise<ArrayBuffer>）。デコードしたら消す
+let limiter = null, outTrim = null, muteGain = null, masterGain = null, duckGain = null, chimeBus = null, chimeVerb = null;
 let unmuteEl = null; // 古い iPhone で消音スイッチに負けないための無音の <audio>
 const listeners = new Set();
 const timeline = []; // 確かめ用：はじめてから各音が鳴らせるまで（ミリ秒）
 let startedAt = 0;
 let typingKb = Math.random() < 0.6 ? "desk" : "laptop"; // 1 回の集中のあいだのキーボード
-const lock = { on: false, status: "off", els: [], cur: -1, urls: [null, null], timer: 0, building: false, again: false, silentUrl: null, gen: 0, seed: 1 };
 
 function load() {
   try {
@@ -262,14 +284,14 @@ function load() {
     }
     const m = Number(j.master);
     if (Number.isFinite(m)) master = clamp01(m);
-    if (isIOS && j.lock === true) lock.on = true;
+    // 古い版の lock（ロック中モード）は読まない
   } catch { /* 読めなくても既定値で動く */ }
 }
 let saveT = 0;
 function saveLater() {
   clearTimeout(saveT);
   saveT = setTimeout(() => {
-    try { localStorage.setItem(STORE_KEY, JSON.stringify({ v: 1, vol, master, lock: isIOS ? lock.on : false })); } catch { /* 保存できなくても動く */ }
+    try { localStorage.setItem(STORE_KEY, JSON.stringify({ v: 1, vol, master })); } catch { /* 保存できなくても動く */ }
   }, 250);
 }
 load();
@@ -292,7 +314,7 @@ function getState() {
     vol: { ...vol },
     master,
     ducked,
-    lock: { supported: isIOS, on: lock.on, status: lock.status },
+    muted,
   };
 }
 function emit() {
@@ -300,6 +322,7 @@ function emit() {
   for (const fn of listeners) { try { fn(st); } catch (e) { console.error("[audio] onState", e); } }
 }
 
+// いまの値から v へ（時定数 tau 秒）。予約の途中でも、その時点の値から続ける
 function ramp(p, v, tau) {
   if (!ctx) return;
   const t = ctx.currentTime;
@@ -308,6 +331,7 @@ function ramp(p, v, tau) {
     else { const cur = p.value; p.cancelScheduledValues(t); p.setValueAtTime(cur, t); }
   } catch { /* 古いブラウザ */ }
   p.setTargetAtTime(v, t, tau);
+  return t;
 }
 
 function buildGraph() {
@@ -322,16 +346,17 @@ function buildGraph() {
   outTrim = ctx.createGain();
   outTrim.gain.value = OUT_TRIM;
   limiter.connect(outTrim);
-  outTrim.connect(ctx.destination);
+  // 消音：いちばん後ろ（合図も含めて全部に効く）
+  muteGain = ctx.createGain();
+  muteGain.gain.value = muted ? 0 : 1;
+  outTrim.connect(muteGain);
+  muteGain.connect(ctx.destination);
   masterGain = ctx.createGain();
   masterGain.gain.value = master;
   masterGain.connect(limiter);
-  liveGate = ctx.createGain();
-  liveGate.gain.value = 1;
-  liveGate.connect(masterGain);
   duckGain = ctx.createGain();
   duckGain.gain.value = ducked ? DUCK : 1;
-  duckGain.connect(liveGate);
+  duckGain.connect(masterGain);
   for (const id of IDS) {
     gains[id] = ctx.createGain();
     gains[id].gain.value = 0;
@@ -408,7 +433,8 @@ function loopLayer(id, L, buf) {
   const start = Math.max(0, Math.min(Number(L.loopStart) || 0, end - 1));
   return { buf, loopStart: start, loopEnd: end, gain: (Number(L.gain) || 1) * dB(LEVEL_DB[id] || 0), src: L.src };
 }
-function ensureLoaded(id) {
+// quiet: 裏の先読み。失敗しても「読み込めませんでした」を出さない（上げられたときにもう一度）
+function ensureLoaded(id, { quiet = false } = {}) {
   if (!ctx) return Promise.resolve(false);
   if (loadP[id]) return loadP[id];
   if (status[id] === "ready") return Promise.resolve(true);
@@ -461,6 +487,11 @@ function ensureLoaded(id) {
       return ok;
     },
     (e) => {
+      if (quiet && !audible(id)) {
+        console.warn(`[audio] ${id} を先に読み込めませんでした（上げられたときにもう一度）`, e);
+        status[id] = "waiting";
+        return false;
+      }
       console.error(`[audio] ${id} を読み込めませんでした`, e);
       status[id] = "error";
       failedAt[id] = performance.now();
@@ -470,12 +501,11 @@ function ensureLoaded(id) {
     loadP[id] = null;
     emit();
     startIfNeeded(id);
-    if (lock.on) scheduleLockBuild(400);
   });
   return loadP[id];
 }
 // 「はじめる」の後：音量が 0 でない音から 1 つずつ（雨を最優先）。
-// 音量 0 の音は先読みしない（スマホの通信量を使わない）。つまみを上げたときに取りに行く
+// 鳴らす音がそろったら、音量 0 の音も裏で取っておく（prefetchRest）
 let queueRunning = false;
 async function loadQueue() {
   if (queueRunning) return;
@@ -487,6 +517,41 @@ async function loadQueue() {
       await ensureLoaded(id);
     }
   } finally { queueRunning = false; }
+  schedulePrefetch();
+}
+// 音量 0 の音の先読み：上げたときに通信で待たせない。
+// - ファイル（圧縮のまま・1 つ 0.8〜3.1MB）はどれも取っておく。既定ならタイピングの 1.3MB だけ
+// - デコード後が小さいもの（タイピング 20MB・ノート 13MB）はデコードまで済ませる
+// - 雨・焚き火のループ（デコード後 55MB・70MB）は上げたときにデコードする（iPhone のメモリのため）
+// - 通信量を節約する設定（Save-Data）のときは先読みしない
+let prefetchT = 0, prefetching = false;
+function schedulePrefetch() {
+  clearTimeout(prefetchT);
+  prefetchT = setTimeout(prefetchRest, 800);
+}
+function decodedMB(s) {
+  const sr = ctx ? ctx.sampleRate : 48000;
+  const one = (x) => (Number(x.samples) || 0) * (Number(x.channels) || 2) * 4 * (sr / (Number(x.rate) || sr));
+  const n = s.events ? one(s.events) : (s.loops || []).reduce((a, L) => a + one(L), 0);
+  return n / 1e6;
+}
+async function prefetchRest() {
+  if (prefetching || !ctx) return;
+  try { if (navigator.connection && navigator.connection.saveData) return; } catch { /* なし */ }
+  prefetching = true;
+  try {
+    const m = await getManifest();
+    for (const id of IDS) {
+      // 鳴らす音の読み込みが残っていたら、そちらが先（loadQueue の終わりにもう一度呼ばれる）
+      if (IDS.some((x) => audible(x) && (status[x] === "waiting" || status[x] === "loading"))) break;
+      if (status[id] !== "waiting" || audible(id)) continue;
+      const s = m.sounds && m.sounds[id];
+      if (!s) continue;
+      if (s.events && decodedMB(s) <= PREDECODE_MAX_MB) await ensureLoaded(id, { quiet: true });
+      else for (const L of s.loops || []) await getBytes(fileUrl(L.src, L.v)).catch(() => {});
+    }
+  } catch { /* 先読みは失敗してもよい */ }
+  finally { prefetching = false; }
 }
 
 // ================= 鳴らす =================
@@ -518,11 +583,12 @@ function loopPlayer(id, t0) {
     get count() { return on.length; },
   };
 }
-// 単発（タイピング・ノート）：予約係。AHEAD 秒先までをオーディオの時計に入れておく
-function eventPlayer(id, t0) {
+// 単発（タイピング・ノート）：予約係。AHEAD 秒先までをオーディオの時計に入れておく。
+// 消音で音の処理を止めている間は時計が進まないので、予約は AHEAD 秒先で止まる（たまらない・戻したときにまとめて鳴らない）
+function eventPlayer(id, t0, q) {
   const E = buffers[id].events;
   const opts = id === "typing" ? { getKb: () => typingKb } : {};
-  const plan = PLANS[id](E, Math.random, t0, opts);
+  let plan = PLANS[id](E, Math.random, t0, { ...opts, quick: q });
   let nx = plan.next();
   const playing = new Set();
   let timer = 0, stopped = false;
@@ -532,6 +598,7 @@ function eventPlayer(id, t0) {
     timer = 0;
     if (stopped || !ctx) return;
     try {
+      if (muted && ctx.state !== "running") return; // 消音で止めている間は予約しない（finally で次の見回りは続ける）
       const now = ctx.currentTime;
       const ahead = isHidden() ? AHEAD_HIDDEN : AHEAD;
       let guard = 0;
@@ -547,17 +614,33 @@ function eventPlayer(id, t0) {
       if (!stopped) timer = setTimeout(pump, PUMP_MS); // 失敗しても次の予約は続ける
     }
   }
+  function cancelAll() {
+    for (const n of playing) {
+      try { n.src.stop(); } catch { /* 止まっている */ }
+      try { n.out.disconnect(); } catch { /* なし */ }
+    }
+    playing.clear();
+  }
   pump();
   return {
     pump,
+    // つまみを動かしたのに何も鳴っていないとき：先の予約を取り消し、今から並べ直して 1 つすぐ鳴らす
+    // （ときどき鳴る音なので、何もしないと次に鳴るまで最長 1 分ほど大きさが分からない）
+    nudge() {
+      if (stopped || !ctx || ctx.state !== "running") return false;
+      const now = ctx.currentTime;
+      for (const n of playing) if (n.end > now && n.t < now + NUDGE_WITHIN) return false; // 鳴っている・もうすぐ鳴る
+      if (nx.t < now + NUDGE_WITHIN) return false;
+      cancelAll();
+      plan = PLANS[id](E, Math.random, now + 0.03, { ...opts, quick: true });
+      nx = plan.next();
+      pump();
+      return true;
+    },
     stop() {
       stopped = true;
       clearTimeout(timer);
-      for (const n of playing) {
-        try { n.src.stop(); } catch { /* 止まっている */ }
-        try { n.out.disconnect(); } catch { /* なし */ }
-      }
-      playing.clear();
+      cancelAll();
     },
     get count() { return playing.size; },
     get next() { return nx.t; },
@@ -565,15 +648,20 @@ function eventPlayer(id, t0) {
 }
 
 function startIfNeeded(id) {
-  if (!ctx || !live || !audible(id) || players[id]) return false;
+  if (!ctx || !audible(id) || players[id]) return false;
   const b = buffers[id];
   if (!b || !(b.loops?.length || b.events)) return false;
+  const q = !!quick[id];
+  quick[id] = false;
   const g = gains[id].gain;
   const t = ctx.currentTime;
   try { g.cancelScheduledValues(t); } catch { /* なし */ }
   g.setValueAtTime(0, t);
-  g.setTargetAtTime(vol[id], t + 0.03, b.loops ? 0.45 : 0.03); // ループはすっと入ってくる
-  players[id] = b.loops ? loopPlayer(id, t + 0.03) : eventPlayer(id, t + 0.03);
+  // 「はじめる」のあとのループはすっと入ってくる。つまみで上げたときは、つまみと同じ速さで。
+  // 単発はまだ何も鳴っていないので、すぐその大きさに（すぐ鳴らす 1 つ目の頭が小さくならないように）
+  if (b.loops) g.setTargetAtTime(vol[id], t + 0.03, q ? VOL_TAU : 0.45);
+  else g.setValueAtTime(vol[id], t);
+  players[id] = b.loops ? loopPlayer(id, t + 0.03) : eventPlayer(id, t + 0.03, q);
   return true;
 }
 function stopSrc(id) {
@@ -582,28 +670,14 @@ function stopSrc(id) {
   players[id] = null;
   try { p.stop(); } catch { /* なし */ }
 }
-function setLive(on) {
-  if (!ctx) return;
-  live = on;
-  clearTimeout(liveTimer);
-  ramp(liveGate.gain, on ? 1 : 0, on ? 0.25 : 0.2);
-  if (on) {
-    for (const id of IDS) if (!startIfNeeded(id) && players[id]) ramp(gains[id].gain, vol[id], 0.1);
-  } else {
-    liveTimer = setTimeout(() => { if (!live) IDS.forEach(stopSrc); }, 1500);
-  }
-}
 function pumpAll() {
   for (const id of IDS) players[id]?.pump?.();
 }
 
 function tryResume() {
-  if (!ctx || !started) return;
+  // 消音中は止めたままにする（戻すのは消音を外す操作の中）
+  if (!ctx || !started || muted) return;
   if (ctx.state !== "running" && ctx.state !== "closed") ctx.resume().catch(() => {});
-  if (lock.on && lock.status === "playing") {
-    const el = lock.els[lock.cur];
-    if (el && el.paused && el.dataset.userPaused !== "1") el.play().catch(() => {});
-  }
 }
 try {
   document.addEventListener("visibilitychange", () => {
@@ -622,7 +696,8 @@ async function start() {
       emit();
       throw new Error(failMsg);
     }
-    try { ctx = new AC({ latencyHint: "playback" }); } catch { ctx = new AC(); }
+    // latencyHint は指定しない（既定の "interactive"）。"playback" は出力の遅れが増え、つまみの反応がおそくなる
+    ctx = new AC();
     buildGraph();
     ctx.addEventListener?.("statechange", emit);
     try { // 古い iOS 向け：操作の中で無音を1回鳴らして音を出せる状態にする
@@ -636,12 +711,12 @@ async function start() {
   if (!started) startedAt = performance.now();
   started = true;
   usePlaybackSession(); // 操作の中で呼ぶ（iPhone の消音スイッチがオンでも鳴らす）
-  if (lock.on && !lock.els.length) enableLock(); // 操作の中で呼ぶ必要がある
   let p = null;
   if (ctx.state !== "running") {
     resuming = true;
     p = ctx.resume().catch(() => {}).finally(() => { resuming = false; });
   }
+  if (muted) armMuteSleep(); // 「はじめる」の前に消音されていた
   loadQueue();
   emit();
   if (p) await p;
@@ -656,15 +731,21 @@ function setVolume(id, v) {
   saveLater();
   if (ctx) {
     clearTimeout(stopTimers[id]);
-    if (!startIfNeeded(id)) ramp(gains[id].gain, v, 0.06);
+    clearTimeout(nudgeTimers[id]);
+    const had = !!players[id];
+    if (v > MIN_V && !had) quick[id] = true; // 鳴っていない音を上げた：最初の 1 つをすぐ
+    if (!startIfNeeded(id)) ramp(gains[id].gain, v, VOL_TAU);
     if (v <= MIN_V) stopTimers[id] = setTimeout(() => { if (vol[id] <= MIN_V) stopSrc(id); }, 800); // 0 のあいだは予約しない
+    // タイピング・ノート：つまみが止まったとき、何も鳴っていなければ 1 つすぐ鳴らす（大きさがすぐ分かるように）
+    else if (had && players[id]?.nudge) {
+      nudgeTimers[id] = setTimeout(() => { if (!muted && audible(id)) players[id]?.nudge?.(); }, NUDGE_IDLE_MS);
+    }
     if (started && v > MIN_V) {
       // 上げられた音を読み込む（失敗したものは 3 秒たってから、もう一度だけ試す）
       if (status[id] === "waiting") ensureLoaded(id);
       else if (status[id] === "error" && performance.now() - (failedAt[id] || 0) > 3000) ensureLoaded(id);
     }
   }
-  if (lock.on) scheduleLockBuild(800);
   emit();
 }
 function setMaster(v) {
@@ -672,8 +753,7 @@ function setMaster(v) {
   if (!Number.isFinite(v)) return;
   master = v;
   saveLater();
-  if (ctx) ramp(masterGain.gain, v, 0.06);
-  if (lock.on) scheduleLockBuild(800);
+  if (ctx) ramp(masterGain.gain, v, VOL_TAU);
   emit();
 }
 function duck(on) {
@@ -683,8 +763,37 @@ function duck(on) {
   if (ctx) ramp(duckGain.gain, on ? DUCK : 1, 1.2);
   // 休憩が終わって次の集中に入るとき、ときどきキーボードを替える
   if (!on && Math.random() < 0.5) typingKb = typingKb === "desk" ? "laptop" : "desk";
-  // ロック中モードでは下げない（差し替えるとぷつりと段差になるため。WAV も下げずに作る）
   emit();
+}
+
+// ================= 消音 =================
+// 全体（環境音と合図）を 0.15 秒ほどで 0 に。つまみの値は変えない。保存しない。
+// 戻すときは、押した操作の中で呼ぶ（止めていた音の処理を再開するため。iPhone の決まり）
+function setMuted(on) {
+  on = !!on;
+  if (on === muted) return;
+  muted = on;
+  clearTimeout(muteTimer);
+  if (ctx && muteGain) {
+    if (!on && started && ctx.state !== "running" && ctx.state !== "closed") {
+      resuming = true;
+      ctx.resume().catch(() => {}).finally(() => { resuming = false; emit(); });
+      // 止まっている時計のうちに予約しておく（消音中に上げた音の 1 つ目が、再開と同時に鳴る。
+      // 次の見回りまで待つと、そのころには時計が進んでいて「遅れたもの」として捨てられる）
+      pumpAll();
+    }
+    const t = ramp(muteGain.gain, on ? 0 : 1, MUTE_TAU);
+    muteGain.gain.setValueAtTime(on ? 0 : 1, t + MUTE_ZERO); // 最後はちょうどの値に
+    if (on && started) armMuteSleep();
+  }
+  emit();
+}
+// 消音が続いたら音の処理を止める（電池のため）。止めている間は時計が進まないので、予約もたまらない
+function armMuteSleep() {
+  clearTimeout(muteTimer);
+  muteTimer = setTimeout(() => {
+    if (muted && ctx && ctx.state === "running") ctx.suspend().catch(() => {});
+  }, MUTE_SUSPEND_MS);
 }
 
 // ================= 合図（やわらかいマリンバ風・合成） =================
@@ -774,7 +883,8 @@ function bell(f, t, A) {
   if (longest) longest.onended = () => { try { out.disconnect(); lp.disconnect(); } catch { /* なし */ } };
 }
 function chime(kind) {
-  if (!ctx || ctx.state === "closed") return;
+  // 消音中は鳴らさない（止めている音の処理も起こさない。戻したときに遅れて鳴ることもない）
+  if (!ctx || ctx.state === "closed" || muted) return;
   if (ctx.state !== "running") ctx.resume().catch(() => {});
   // focusEnd: 下がる2音（ソ→ド）、breakEnd: 上がる2音（ド→ソ）
   const notes = kind === "breakEnd" ? [523.25, 783.99] : [783.99, 523.25];
@@ -783,7 +893,39 @@ function chime(kind) {
   notes.forEach((f, i) => bell(f, t0 + i * 0.36, A * (i ? 0.8 : 1)));
 }
 
-// ================= 録音を OfflineAudioContext で混ぜる（ロック中モードと確かめ用） =================
+// ================= iPhone の消音スイッチ（マナーモード）対策 =================
+// iOS の Web Audio は、何もしないと消音スイッチで消える。
+// audioSession があれば "playback" に。古い iOS では無音の <audio loop> を鳴らしておく（昔からの回避策）
+// ※ playback にすると、ほかのアプリの音楽は止まる
+function silentWavUrl() {
+  const n = 800, v = new DataView(new ArrayBuffer(44 + n * 2)); // 8000Hz・0.1 秒の無音
+  const w = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  w(0, "RIFF"); v.setUint32(4, 36 + n * 2, true); w(8, "WAVEfmt "); v.setUint32(16, 16, true);
+  v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, 8000, true); v.setUint32(28, 16000, true);
+  v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, "data"); v.setUint32(40, n * 2, true);
+  return URL.createObjectURL(new Blob([v.buffer], { type: "audio/wav" }));
+}
+function usePlaybackSession() {
+  try {
+    if (navigator.audioSession) { navigator.audioSession.type = "playback"; return; }
+  } catch { /* なし */ }
+  if (!isIOS) return;
+  try {
+    if (!unmuteEl) {
+      unmuteEl = document.createElement("audio");
+      unmuteEl.loop = true;
+      unmuteEl.setAttribute("playsinline", "");
+      unmuteEl.playsInline = true;
+      unmuteEl.setAttribute("aria-hidden", "true");
+      unmuteEl.style.display = "none";
+      unmuteEl.src = silentWavUrl();
+      (document.body || document.documentElement).appendChild(unmuteEl);
+    }
+    if (unmuteEl.paused) unmuteEl.play().catch(() => {});
+  } catch { /* なし */ }
+}
+
+// ================= 録音を OfflineAudioContext で混ぜる（確かめ用） =================
 // 鳴らし方は本番と同じ（ループは loop＋loopStart/loopEnd、単発は同じ予約係の並び）。
 // ループの始まりの位置は seed と音の名前から決める（音量を変えて作り直しても、同じ位置の同じ音になる）
 async function renderScene({ length, sampleRate, vols = vol, master: mg = 1, seed = 1, eventsFrom = 0, eventsUntil = Infinity, ids = IDS }) {
@@ -800,7 +942,7 @@ async function renderScene({ length, sampleRate, vols = vol, master: mg = 1, see
     out.connect(oac.destination);
     if (b.loops) {
       const input = soundInput(oac, id, out);
-      b.loops.forEach((L, k) => {
+      b.loops.forEach((L) => {
         const r = subRand(seed, `${id}:${L.src}`)();
         startLayer(oac, L, input, 0, L.loopStart + r * (L.loopEnd - L.loopStart));
       });
@@ -810,7 +952,7 @@ async function renderScene({ length, sampleRate, vols = vol, master: mg = 1, see
       const rand = subRand(seed, id);
       const plan = PLANS[id](E, rand, eventsFrom, {});
       for (let e = plan.next(), guard = 0; e.t < until && guard < 5000; e = plan.next(), guard++) {
-        if (e.t + e.dur > until) continue; // はみ出すものは入れない（ロック中モードの継ぎ目を静かに）
+        if (e.t + e.dur > until) continue; // 描き出しの終わりからはみ出すものは入れない
         playEvent(oac, E, e, out);
         events.push({ id, t: e.t, clip: e.clip, kind: e.kind, dur: e.dur, gain: e.gain, pan: e.pan, rate: e.rate });
       }
@@ -818,241 +960,6 @@ async function renderScene({ length, sampleRate, vols = vol, master: mg = 1, see
   }
   const buffer = await renderAsync(oac);
   return { buffer, events };
-}
-
-// ================= ロック中も流す（iPhone 向け） =================
-// iOS Safari は画面ロックやバックグラウンドで Web Audio が止まる。
-// そこで、いまの音量で全部の音を混ぜた 100 秒のループを WAV にして、隠した <audio loop playsinline> で鳴らす。
-// 混ぜるのは読み込んだ録音そのもの（renderScene）。単発は継ぎ目の重ねの外にだけ置く。
-// ※ 実機未確認（iPhone 実機では試していない）
-function wavBlob(chs, sr) {
-  const C = chs.length, N = chs[0].length;
-  const bytes = 44 + N * C * 2;
-  const buf = new ArrayBuffer(bytes);
-  const v = new DataView(buf);
-  const w = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
-  w(0, "RIFF"); v.setUint32(4, bytes - 8, true); w(8, "WAVE"); w(12, "fmt ");
-  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, C, true); v.setUint32(24, sr, true);
-  v.setUint32(28, sr * C * 2, true); v.setUint16(32, C * 2, true); v.setUint16(34, 16, true);
-  w(36, "data"); v.setUint32(40, N * C * 2, true);
-  const out = new Int16Array(buf, 44, N * C);
-  for (let n = 0; n < N; n++) {
-    for (let c = 0; c < C; c++) {
-      let x = chs[c][n];
-      const a = Math.abs(x);
-      if (a > 0.85) x = Math.sign(x) * (0.85 + 0.15 * Math.tanh((a - 0.85) / 0.15)); // やわらかく頭打ち
-      out[n * C + c] = Math.max(-32768, Math.min(32767, Math.round(x * 32767)));
-    }
-  }
-  return new Blob([buf], { type: "audio/wav" });
-}
-function silentUrl() {
-  if (!lock.silentUrl) lock.silentUrl = URL.createObjectURL(wavBlob([new Float32Array(2000)], 8000));
-  return lock.silentUrl;
-}
-// 引数は確かめ用（ふだんは いまの音量・全体・並び）
-async function mixToWav({ vols: vv = vol, master: mg = master, seed = lock.seed } = {}) {
-  const sr = lockRate();
-  const N = Math.round(LOCK_SEC * sr), X = Math.round(LOCK_XF * sr);
-  const vols = {};
-  let any = false;
-  for (const id of IDS) {
-    vols[id] = buffers[id] ? Number(vv[id]) || 0 : 0;
-    if (vols[id] > MIN_V) any = true;
-  }
-  if (!any) return null;
-  const { buffer } = await renderScene({
-    length: N + X, sampleRate: sr, vols, master: mg * LIMITER_MAKEUP * OUT_TRIM, seed,
-    eventsFrom: LOCK_XF, eventsUntil: LOCK_SEC, // 単発は重ねの外（X〜N 秒）だけ
-  });
-  const chs = [buffer.getChannelData(0), buffer.getChannelData(1)];
-  // 継ぎ目：最後の X ぶんを頭に重ねる（等パワーのクロスフェード。ループの録音どうしは似ていないので等パワー）
-  for (const d of chs) {
-    for (let i = 0; i < X; i++) {
-      const th = (i / X) * (Math.PI / 2);
-      d[i] = d[i] * Math.sin(th) + d[N + i] * Math.cos(th);
-    }
-  }
-  return URL.createObjectURL(wavBlob(chs.map((d) => d.subarray(0, N)), sr));
-}
-function setLockStatus(s) {
-  if (lock.status === s) return;
-  lock.status = s;
-  emit();
-}
-function primeLockEls() {
-  // iOS は play() をユーザー操作の中でしか許さない。ここで一度鳴らして（無音）、あとから差し替えられるようにする
-  if (!lock.els.length) {
-    for (let i = 0; i < 2; i++) {
-      const el = document.createElement("audio");
-      el.loop = true;
-      el.preload = "auto";
-      el.setAttribute("playsinline", "");
-      el.playsInline = true;
-      el.setAttribute("aria-hidden", "true");
-      el.style.display = "none";
-      el.addEventListener("pause", () => { if (lock.els[lock.cur] === el && lock.status === "playing") setMediaPlaying(false); });
-      el.addEventListener("play", () => { if (lock.els[lock.cur] === el) setMediaPlaying(true); });
-      (document.body || document.documentElement).appendChild(el);
-      lock.els.push(el);
-    }
-  }
-  lock.els.forEach((el, i) => {
-    if (i === lock.cur && !el.paused) return;
-    if (!el.src) el.src = silentUrl();
-    el.play().then(() => { if (i !== lock.cur) el.pause(); }).catch(() => {});
-  });
-}
-// iOS の Web Audio は、何もしないと消音スイッチ（マナーモード）で消える。
-// audioSession があれば "playback" に。古い iOS では無音の <audio loop> を鳴らしておく（昔からの回避策）
-// ※ playback にすると、ほかのアプリの音楽は止まる
-function usePlaybackSession() {
-  try {
-    if (navigator.audioSession) { navigator.audioSession.type = "playback"; return; }
-  } catch { /* なし */ }
-  if (!isIOS) return;
-  try {
-    if (!unmuteEl) {
-      unmuteEl = document.createElement("audio");
-      unmuteEl.loop = true;
-      unmuteEl.setAttribute("playsinline", "");
-      unmuteEl.playsInline = true;
-      unmuteEl.setAttribute("aria-hidden", "true");
-      unmuteEl.style.display = "none";
-      unmuteEl.src = silentUrl();
-      (document.body || document.documentElement).appendChild(unmuteEl);
-    }
-    if (unmuteEl.paused) unmuteEl.play().catch(() => {});
-  } catch { /* なし */ }
-}
-function enableLock() {
-  usePlaybackSession();
-  primeLockEls();
-  lock.seed = (Math.random() * 4294967296) >>> 0; // 切り替えている間は同じ並び（作り直しても同じ位置から続く）
-  setLockStatus("building");
-  scheduleLockBuild(0);
-}
-function disableLock() {
-  clearTimeout(lock.timer);
-  lock.els.forEach((el) => { try { el.pause(); } catch { /* なし */ } });
-  for (let i = 0; i < 2; i++) {
-    if (lock.urls[i]) { URL.revokeObjectURL(lock.urls[i]); lock.urls[i] = null; }
-    if (lock.els[i]) { lock.els[i].removeAttribute("src"); try { lock.els[i].load(); } catch { /* なし */ } }
-  }
-  lock.cur = -1;
-  lock.gen++; // 予約中の片づけを無効に
-  // Web Audio に戻すので "auto" にはしない（消音スイッチで消えないように）
-  try { if (navigator.audioSession) navigator.audioSession.type = "playback"; } catch { /* なし */ }
-  try { if (navigator.mediaSession) navigator.mediaSession.playbackState = "none"; } catch { /* なし */ }
-  setLive(true);
-  setLockStatus("off");
-}
-function scheduleLockBuild(ms) {
-  if (!lock.on || !ctx) return;
-  clearTimeout(lock.timer);
-  lock.timer = setTimeout(buildLock, ms);
-}
-const withTimeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error("時間切れ")), ms))]);
-async function buildLock() {
-  if (!lock.on || !ctx) return;
-  if (lock.building) { lock.again = true; return; }
-  lock.building = true;
-  if (lock.status !== "playing") setLockStatus("building");
-  try {
-    const url = await mixToWav();
-    if (!lock.on) { if (url) URL.revokeObjectURL(url); return; }
-    if (!url) { // まだ音がない（読み込みの途中、または全部 0）
-      if (lock.cur >= 0) {
-        // 前の音量で混ぜた WAV を無音に差し替える（止めるだけだと、次のタップやロック画面の再生でまた鳴る）
-        const el = lock.els[lock.cur];
-        el.pause();
-        if (lock.urls[lock.cur]) {
-          el.src = silentUrl();
-          URL.revokeObjectURL(lock.urls[lock.cur]);
-          lock.urls[lock.cur] = null;
-        }
-      }
-      if (IDS.every((id) => !audible(id) || status[id] === "ready" || status[id] === "error")) setLockStatus("playing");
-      return;
-    }
-    const prev = lock.cur >= 0 ? lock.els[lock.cur] : null;
-    const prevIdx = lock.cur;
-    const ni = lock.cur === 0 ? 1 : 0;
-    const el = lock.els[ni];
-    const gen = ++lock.gen; // 差し替えの番号（古い片づけが新しい音を消さないように）
-    el.src = url;
-    el.loop = true;
-    el.dataset.userPaused = "";
-    // 前の音と同じ位置から続ける（先に位置を合わせてから鳴らす）
-    const follow = prev && !prev.paused;
-    if (follow) {
-      await withTimeout(new Promise((r) => (el.readyState >= 1 ? r() : el.addEventListener("loadedmetadata", r, { once: true }))), 1500).catch(() => {});
-      try { el.currentTime = (prev.currentTime + 0.05) % LOCK_SEC; } catch { /* なし */ }
-    }
-    await withTimeout(el.play(), 6000);
-    if (follow && Math.abs(el.currentTime - (prev.currentTime % LOCK_SEC)) > 0.3) { try { el.currentTime = prev.currentTime % LOCK_SEC; } catch { /* なし */ } }
-    if (prev) prev.pause();
-    const old = prevIdx >= 0 ? lock.urls[prevIdx] : null;
-    const oldEl = lock.urls[ni]; // 前に ni で使っていた URL（もう使わない）
-    lock.urls[ni] = url;
-    lock.cur = ni;
-    if (oldEl && oldEl !== url) URL.revokeObjectURL(oldEl);
-    setTimeout(() => {
-      // この 1 秒の間に次の差し替えが始まっていたら、前の要素には触らない（いま鳴っている方かもしれない）
-      if (lock.gen !== gen) return;
-      if (prev && prev !== lock.els[lock.cur]) prev.src = silentUrl();
-      if (old && prevIdx >= 0 && lock.urls[prevIdx] === old) { URL.revokeObjectURL(old); lock.urls[prevIdx] = null; }
-    }, 1000);
-    setLive(false); // Web Audio 側は止める
-    setMedia();
-    setLockStatus("playing");
-  } catch (e) {
-    console.error("[audio] ロック中モード", e);
-    setLive(true);
-    setLockStatus("error");
-  } finally {
-    lock.building = false;
-    if (lock.again) { lock.again = false; scheduleLockBuild(150); }
-  }
-}
-function setMediaPlaying(on) {
-  try { if (navigator.mediaSession) navigator.mediaSession.playbackState = on ? "playing" : "paused"; } catch { /* なし */ }
-}
-function setMedia() {
-  const ms = navigator.mediaSession;
-  if (!ms) return;
-  try {
-    if (typeof MediaMetadata === "function") {
-      ms.metadata = new MediaMetadata({
-        title: "アマヤドリ",
-        artist: "雨音と集中の部屋",
-        album: "アマヤドリ",
-        artwork: [{ src: new URL("../art/room.jpg", import.meta.url).href, sizes: "1536x1024", type: "image/jpeg" }],
-      });
-    }
-    ms.setActionHandler("play", () => {
-      const el = lock.els[lock.cur];
-      if (el) { el.dataset.userPaused = ""; el.play().catch(() => {}); }
-    });
-    ms.setActionHandler("pause", () => {
-      const el = lock.els[lock.cur];
-      if (el) { el.dataset.userPaused = "1"; el.pause(); }
-    });
-    ms.playbackState = "playing";
-  } catch { /* なし */ }
-}
-function setLockMode(on) {
-  on = !!on;
-  if (on === lock.on) return;
-  lock.on = on;
-  saveLater();
-  if (ctx && started) {
-    if (on) enableLock();
-    else disableLock();
-  } else {
-    setLockStatus(on ? "waiting" : "off"); // 「はじめる」のときに切り替える
-  }
-  emit();
 }
 
 // ================= 確かめ用（開発ページから使う） =================
@@ -1115,11 +1022,11 @@ function planEvents(id, seconds = 60, seed = 1) {
   return out;
 }
 // 出力の手前を分けて覗く（左右別）。出力そのものは変わらない
-function tapNode(node) {
+function tapNode(node, fftSize = 8192) {
   if (!ctx || !node) return null;
   const sp = ctx.createChannelSplitter(2);
   const L = ctx.createAnalyser(), R = ctx.createAnalyser();
-  L.fftSize = R.fftSize = 8192;
+  L.fftSize = R.fftSize = fftSize;
   node.connect(sp);
   sp.connect(L, 0);
   sp.connect(R, 1);
@@ -1141,30 +1048,34 @@ export const audio = {
   chime,
   duck,
   sounds: SOUNDS,
-  // 追加：状態の知らせ（mixer-ui が使う）。戻り値で解除
+  // 追加：状態の知らせ（mixer-ui・main.js が使う）。戻り値で解除
   onState(fn) {
     listeners.add(fn);
     try { fn(getState()); } catch (e) { console.error("[audio] onState", e); }
     return () => listeners.delete(fn);
   },
   getState,
-  // 追加：ロック中も流す（iPhone 向け）。ユーザー操作の中で呼ぶ
-  lockSupported: isIOS,
-  setLockMode,
-  getLockMode: () => lock.on,
+  // 追加：消音。戻すときはユーザー操作の中で呼ぶ。「はじめる」の前でもよい
+  setMuted,
+  isMuted: () => muted,
+  toggleMute() { setMuted(!muted); return muted; },
   // 開発用
   debug: {
     manifest: () => manifest,
     buffers: () => ({ ...buffers }),
     context: () => ctx,
     timeline: () => timeline.slice(),
-    tap: () => tapNode(outTrim), // コンプの後
-    tapSound: (id) => tapNode(gains[id]), // 音ごと（音量の後・休憩の下げの前）
+    tap: (fft) => tapNode(muteGain, fft), // 最後の出口（消音の後）
+    tapSound: (id, fft) => tapNode(gains[id], fft), // 音ごと（音量の後・休憩の下げの前）
+    channel: (id) => gains[id] || null, // 音ごとの出口（GainNode）
+    output: () => muteGain, // 最後の出口（GainNode）
     players: () => Object.fromEntries(IDS.map((id) => [id, players[id] ? players[id].count : 0])),
     nextEvent: (id) => players[id]?.next ?? null,
     keyboard: () => typingKb,
-    levels: { LEVEL_DB: { ...LEVEL_DB }, KIND_DB: { ...KIND_DB }, PAN: { ...PAN }, AHEAD, AHEAD_HIDDEN, LOCK_SEC, LOCK_XF, get LOCK_RATE() { return lockRate(); } },
+    bytesCached: () => [...bytesCache.keys()],
+    levels: { LEVEL_DB: { ...LEVEL_DB }, KIND_DB: { ...KIND_DB }, PAN: { ...PAN }, AHEAD, AHEAD_HIDDEN, NUDGE_IDLE_MS, NUDGE_WITHIN, QUICK_LEAD, VOL_TAU, MUTE_TAU, MUTE_ZERO, MUTE_SUSPEND_MS, PREDECODE_MAX_MB },
     load: ensureLoaded,
+    prefetch: prefetchRest,
     plan: planEvents,
     // 例: render({ seconds: 60, vols: { typing: 1 }, seed: 3 }) → { buffer, events }
     render(o = {}) {
@@ -1172,7 +1083,5 @@ export const audio = {
       return renderScene({ ...o, sampleRate, length: Math.round((o.seconds || 60) * sampleRate) });
     },
     seam: seamTest,
-    lockElements: () => lock.els.slice(),
-    mixToWav,
   },
 };

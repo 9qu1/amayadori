@@ -43,6 +43,11 @@
           <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
           <span data-label>全画面</span>
         </button>
+        <button id="mute-toggle" class="tool-btn" type="button" aria-pressed="false" title="すべての音を消す（M キー）">
+          <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-sound-on><path d="M4 9.5h3.4L12 6v12l-4.6-3.5H4z"/><path d="M15.5 9.5a3.5 3.5 0 0 1 0 5M18 7a7 7 0 0 1 0 10"/></svg>
+          <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-sound-off hidden><path d="M4 9.5h3.4L12 6v12l-4.6-3.5H4z"/><path d="m15.5 9.5 5 5M20.5 9.5l-5 5"/></svg>
+          <span data-label>消音</span>
+        </button>
       </div>
       <section id="timer" class="panel panel-timer" aria-label="ポモドーロタイマー"></section>
       <section id="mixer" class="panel panel-mixer" aria-label="音の量"></section>

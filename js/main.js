@@ -31,6 +31,7 @@ const ready = (async () => {
   if (audio) {
     try { if (duckWanted) audio.duck?.(true); } catch (e) { report("audio.duck", e); }
     try { mixerMod?.initMixer?.($("mixer"), audio); } catch (e) { report("initMixer", e); }
+    try { audio.onState?.((st) => paintMute(!!st?.muted)); } catch (e) { report("audio.onState", e); }
   }
   // 絵や音があとから来たので、タイマーの状態をもう一度知らせる
   try { timer?.announce?.(); } catch (e) { report("timer.announce", e); }
@@ -128,8 +129,9 @@ function setUiHidden(on) {
   // 名前が「表示を戻す」に変わるので aria-pressed は付けない（「押されている」と重なって逆の意味に聞こえる）
   uiBtn.querySelector("[data-label]").textContent = on ? "表示を戻す" : "表示を隠す";
   uiBtn.title = on ? "パネルを元に戻す" : "パネルを畳んで絵を見る";
-  uiBtn.querySelector("[data-eye-off]").hidden = on;
-  uiBtn.querySelector("[data-eye]").hidden = !on;
+  // svg には hidden のプロパティがないので、属性で切り替える
+  uiBtn.querySelector("[data-eye-off]").toggleAttribute("hidden", on);
+  uiBtn.querySelector("[data-eye]").toggleAttribute("hidden", !on);
   // 絵の箱の大きさが変わるので知らせる（stage.js が測り直せるように）
   requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
 }
@@ -163,3 +165,34 @@ if (requestFs && exitFs && fsEnabled) {
   document.addEventListener("fullscreenchange", syncFs);
   document.addEventListener("webkitfullscreenchange", syncFs);
 }
+
+// ---------- 消音（上の道具・ミキサーの見出しの横・M キー。状態は audio が持ち、onState で両方そろう） ----------
+// 戻すときに止めていた音の処理を再開するので、押した操作（click / keydown）の中で呼ぶ
+const muteBtn = $("mute-toggle");
+function paintMute(on) {
+  muteBtn.setAttribute("aria-pressed", on ? "true" : "false");
+  muteBtn.querySelector("[data-label]").textContent = on ? "音を戻す" : "消音";
+  muteBtn.title = on ? "音を戻す（M キー）" : "すべての音を消す（M キー）";
+  muteBtn.querySelector("[data-sound-on]").toggleAttribute("hidden", on); // svg は属性で
+  muteBtn.querySelector("[data-sound-off]").toggleAttribute("hidden", !on);
+}
+function toggleMute() {
+  try { audio?.setMuted?.(!audio.isMuted?.()); } catch (e) { report("消音", e); }
+}
+muteBtn.addEventListener("click", (e) => { blurIfMouse(e); toggleMute(); });
+// 文字を打つ所にいるときは M を取らない（つまみ・ボタンにフォーカスがあるときは効く）
+const TYPING_INPUT = /^(text|search|email|url|tel|password|number|date|time|datetime-local|month|week)$/;
+function isTypingTarget(t) {
+  if (!t || !t.tagName) return false;
+  if (t.isContentEditable) return true;
+  if (t.tagName === "TEXTAREA" || t.tagName === "SELECT") return true;
+  return t.tagName === "INPUT" && TYPING_INPUT.test((t.type || "text").toLowerCase());
+}
+document.addEventListener("keydown", (e) => {
+  if (e.code !== "KeyM" && e.key !== "m" && e.key !== "M") return;
+  if (e.repeat || e.isComposing || e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented) return;
+  if (isTypingTarget(e.target)) return;
+  if (!overlay.hidden && !overlay.classList.contains("is-gone")) return; // 「はじめる」の前は何もしない
+  e.preventDefault();
+  toggleMute();
+});

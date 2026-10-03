@@ -179,10 +179,18 @@ button:disabled { cursor: default; }
   backdrop-filter: blur(12px);
   font-size: 12.5px;
   white-space: nowrap;
-  transition: background 0.2s;
+  transition: background 0.2s, border-color 0.2s, color 0.2s;
 }
 .tool-btn:hover { background: rgba(40, 33, 38, 0.72); }
 .tool-btn svg { width: 16px; height: 16px; flex: none; }
+/* 消音中（「音を戻す」）は色を付けて、ひと目でわかるように */
+.tool-btn[aria-pressed="true"],
+.tool-btn[aria-pressed="true"]:hover {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 700;
+}
 /* せまい画面（スマホ縦・横）では絵のポスターにかからないよう丸いアイコンだけにする（名前は読み上げ用に残す） */
 @media (orientation: portrait), (orientation: landscape) and (max-height: 560px) {
   .tool-btn {
@@ -744,6 +752,14 @@ body.ui-hidden #timer {
   body.ui-hidden { overflow: hidden; }
   body.ui-hidden #scene { position: fixed; inset: 0; width: auto; height: auto; }
   body.ui-hidden .toolbar { position: fixed; }
+}
+/* せまい縦向き: 道具を縦に並べて、絵のポスター（右の縁は幅の約 78%）にかからないように。
+   横に並べてかからないのは、2つ（iPhone）なら幅 390px 以上、3つ（全画面あり）なら 580px 以上 */
+@media (orientation: portrait) and (max-width: 389px) {
+  .toolbar { flex-direction: column; }
+}
+@media (orientation: portrait) and (max-width: 599px) {
+  .toolbar:has(#fs-toggle:not([hidden])) { flex-direction: column; }
 }
 
 /* ---------- とても低い横向き（iPhone SE を横にしてバーが出ているときなど） ---------- */
