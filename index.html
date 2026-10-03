@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="ja" class="is-starting">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>アマヤドリ — 雨音と集中の部屋</title>
+  <meta name="description" content="雨・焚き火・タイピング・ノートと鉛筆の音を流しながら、ポモドーロタイマーで集中できる部屋。登録なし・無料。">
+  <meta name="theme-color" content="#0c0d12">
+  <link rel="canonical" href="https://9qu1.com/amayadori/">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="アマヤドリ">
+  <meta property="og:title" content="アマヤドリ — 雨音と集中の部屋">
+  <meta property="og:description" content="雨・焚き火・タイピング・ノートと鉛筆の音を流しながら、ポモドーロタイマーで集中できる部屋。">
+  <meta property="og:url" content="https://9qu1.com/amayadori/">
+  <meta property="og:image" content="https://9qu1.com/amayadori/art/ogp.jpg">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:locale" content="ja_JP">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="apple-touch-icon" href="art/icon-180.png">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 3c5 7 9 11.5 9 16.5A9 9 0 0 1 7 19.5C7 14.5 11 10 16 3z' fill='%23f4b86e'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@400;500;700&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@500;700&text=0123456789:/%20&display=swap">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/scene.css">
+  <link rel="stylesheet" href="css/mixer.css">
+</head>
+<body>
+  <main class="app">
+    <div id="scene" class="scene" role="group" aria-label="雨の降る夜の部屋"></div>
+
+    <section class="panels" aria-label="操作">
+      <h1 class="brand">アマヤドリ</h1>
+      <div class="toolbar">
+        <button id="ui-toggle" class="tool-btn" type="button" title="パネルを畳んで絵を見る">
+          <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-eye-off><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/><path d="M4 20 20 4"/></svg>
+          <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-eye hidden><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/></svg>
+          <span data-label>表示を隠す</span>
+        </button>
+        <button id="fs-toggle" class="tool-btn" type="button" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
+          <span data-label>全画面</span>
+        </button>
+      </div>
+      <section id="timer" class="panel panel-timer" aria-label="ポモドーロタイマー"></section>
+      <section id="mixer" class="panel panel-mixer" aria-label="音の量"></section>
+      <section id="stats" class="panel panel-stats" aria-label="今日の記録"></section>
+      <!-- 広告はまだ出さない（2026-10-03 公開時）。出すときは hidden を外す -->
+      <aside id="ad-slot" class="panel ad-slot" aria-label="広告枠の見本" hidden>
+        <span class="ad-label">広告</span>
+        <div class="ad-body">広告枠（見本）</div>
+      </aside>
+    </section>
+  </main>
+
+  <div id="start-overlay" class="start-overlay" role="dialog" aria-modal="true" aria-labelledby="start-title" aria-describedby="start-desc">
+    <div class="start-card">
+      <h1 class="start-title" id="start-title">アマヤドリ</h1>
+      <p class="start-lead" id="start-desc">雨の音と、ちいさな部屋。<br>音を流して、集中をはじめましょう。</p>
+      <button id="start-btn" class="start-btn" type="button">はじめる</button>
+      <p class="start-note">音が出ます。音量にご注意ください。</p>
+    </div>
+  </div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,789 @@
+{
+ "license": {
+  "author": "Joseph SARDIN",
+  "site": "BigSoundBank.com",
+  "url": "https://bigsoundbank.com",
+  "license": "CC0",
+  "note": "商用・改変・再配布可、クレジットは任意（サイトの表記は CC0 相当）",
+  "sources": [
+   {
+    "id": "1019",
+    "title": "Summer Rain on Terrace",
+    "page": "https://bigsoundbank.com/summer-rain-on-terrace-s1019.html"
+   },
+   {
+    "id": "1293",
+    "title": "Rain on car roof",
+    "page": "https://bigsoundbank.com/rain-on-car-roof-s1293.html"
+   },
+   {
+    "id": "1294",
+    "title": "Big rain on car roof",
+    "page": "https://bigsoundbank.com/big-rain-on-car-roof-s1294.html"
+   },
+   {
+    "id": "2855",
+    "title": "Fireplace #3",
+    "page": "https://bigsoundbank.com/fireplace-3-s2855.html"
+   },
+   {
+    "id": "2856",
+    "title": "Fireplace #4",
+    "page": "https://bigsoundbank.com/fireplace-4-s2856.html"
+   },
+   {
+    "id": "1734",
+    "title": "Quick Keyboard",
+    "page": "https://bigsoundbank.com/quick-keyboard-s1734.html"
+   },
+   {
+    "id": "1733",
+    "title": "Slow Keyboard",
+    "page": "https://bigsoundbank.com/slow-keyboard-s1733.html"
+   },
+   {
+    "id": "1729",
+    "title": "Slow MacBook Pro keyboard #2",
+    "page": "https://bigsoundbank.com/slow-macbook-pro-keyboard-2-s1729.html"
+   },
+   {
+    "id": "1413",
+    "title": "Pages that turn #2",
+    "page": "https://bigsoundbank.com/pages-that-turn-2-s1413.html"
+   },
+   {
+    "id": "2210",
+    "title": "Pages that turn #3",
+    "page": "https://bigsoundbank.com/pages-that-turn-3-s2210.html"
+   },
+   {
+    "id": "2211",
+    "title": "Pages that turn #4",
+    "page": "https://bigsoundbank.com/pages-that-turn-4-s2211.html"
+   },
+   {
+    "id": "2212",
+    "title": "Pages that turn #5",
+    "page": "https://bigsoundbank.com/pages-that-turn-5-s2212.html"
+   },
+   {
+    "id": "2213",
+    "title": "Pages that turn #6",
+    "page": "https://bigsoundbank.com/pages-that-turn-6-s2213.html"
+   },
+   {
+    "id": "2214",
+    "title": "Pages that turn #7",
+    "page": "https://bigsoundbank.com/pages-that-turn-7-s2214.html"
+   },
+   {
+    "id": "2215",
+    "title": "Pages that turn #8",
+    "page": "https://bigsoundbank.com/pages-that-turn-8-s2215.html"
+   },
+   {
+    "id": "2216",
+    "title": "Pages that turn #9",
+    "page": "https://bigsoundbank.com/pages-that-turn-9-s2216.html"
+   },
+   {
+    "id": "0221",
+    "title": "Pencil #1",
+    "page": "https://bigsoundbank.com/pencil-s0221.html"
+   }
+  ]
+ },
+ "built": "2026-10-03",
+ "howto": {
+  "loops": "AudioBufferSourceNode.loop = true、loopStart / loopEnd に manifest の秒をそのまま入れ、start(t, loopStart) で鳴らす。つなぎの重ね（3 秒）はファイルに焼き込み済みなので、再生側でクロスフェードは要らない。ファイルの前後 padSec 秒はループの続きの写し：AAC の頭の詰め物をデコーダが捨てなくても（ずれ 0.05 秒以下）つなぎ目は自然のまま。",
+  "events": "1 本のファイルに、かたまりを無音をはさんで並べてある。start〜end（前後 0.1 秒の無音を含む）を start(t, start, end - start) で鳴らす。頭の詰め物でずれても余白の中に収まる。",
+  "levels": "大きさはファイルに焼き込み済み。lufs は 2ch で鳴らしたときの統合ラウドネス（モノラルは左右に同じ音で鳴る前提で +3dB して数えた）。gain は「ミキサー 1.0 のときに掛ける値」のおすすめ。真のピークは AAC をデコードした後で -1 dBTP 以下。",
+  "samples": "samples はエンコード前の本来の長さ（48kHz のサンプル数）。デコード後の長さがこれより長ければ詰め物が残っている。詰め物を捨てる環境では同じか、mp4 の時間の丸めで最大 1ms 短い（Chrome 152 で長さ一致・頭のずれ 0 を確認）。ループの長さは 0.1 秒の倍数なので、44.1kHz などで開いても loopEnd - loopStart は整数のサンプル数になる。",
+  "typing": "keyboard（desk / laptop）は打鍵の音色が違う。1 回の集中のあいだは同じ keyboard から選ぶと自然。pace: fast は速い打鍵（少なめに入れてある）。"
+ },
+ "sounds": {
+  "rain": {
+   "label": "雨",
+   "loops": [
+    {
+     "src": "sounds/rain-main.m4a",
+     "rate": 48000,
+     "channels": 2,
+     "samples": 3988800,
+     "loopStart": 0.25,
+     "loopEnd": 82.85,
+     "loopSamples": 3964800,
+     "padSec": 0.25,
+     "xfadeBaked": 3.0,
+     "lufs": -23.02,
+     "gain": 1.0,
+     "source": "1019",
+     "from": "1019 の 0.3〜85.9 秒",
+     "v": "1276949c4b"
+    },
+    {
+     "src": "sounds/rain-sub.m4a",
+     "rate": 48000,
+     "channels": 1,
+     "samples": 5899200,
+     "loopStart": 0.25,
+     "loopEnd": 122.65,
+     "loopSamples": 5875200,
+     "padSec": 0.25,
+     "xfadeBaked": 3.0,
+     "lufs": -29.0,
+     "gain": 1.0,
+     "source": "1293+1294",
+     "from": "1293 の 1.25 秒〜終わり ＋ 1294 の 0.45〜25.5 秒（1294 の最初の頭打ち 26.81 秒）",
+     "v": "a1af6a4750"
+    }
+   ]
+  },
+  "fire": {
+   "label": "焚き火",
+   "loops": [
+    {
+     "src": "sounds/fire-main.m4a",
+     "rate": 48000,
+     "channels": 2,
+     "samples": 5265600,
+     "loopStart": 0.25,
+     "loopEnd": 109.45,
+     "loopSamples": 5241600,
+     "padSec": 0.25,
+     "xfadeBaked": 3.0,
+     "lufs": -30.92,
+     "gain": 1.0,
+     "source": "2855",
+     "from": "2855 の 31.7〜143.9 秒",
+     "v": "706eff6257"
+    },
+    {
+     "src": "sounds/fire-sub.m4a",
+     "rate": 48000,
+     "channels": 2,
+     "samples": 3528000,
+     "loopStart": 0.25,
+     "loopEnd": 73.25,
+     "loopSamples": 3504000,
+     "padSec": 0.25,
+     "xfadeBaked": 3.0,
+     "lufs": -27.03,
+     "gain": 1.0,
+     "source": "2856",
+     "from": "2856（36.70〜37.15 秒を抜いた）の 1.2〜77.2 秒",
+     "v": "4611328824"
+    }
+   ]
+  },
+  "typing": {
+   "label": "タイピング",
+   "events": {
+    "src": "sounds/typing.m4a",
+    "rate": 48000,
+    "channels": 1,
+    "samples": 5012637,
+    "marginSec": 0.1,
+    "lufs": -28.0,
+    "gain": 1.0,
+    "gapSec": [
+     1.0,
+     6.0
+    ],
+    "keyboards": {
+     "desk": "デスクのキーボード（1733・1734）",
+     "laptop": "ノートパソコン（1729）"
+    },
+    "clips": [
+     {
+      "start": 0.3,
+      "end": 4.61,
+      "dur": 4.11,
+      "kind": "burst",
+      "source": "1733",
+      "from": [
+       0.0,
+       4.11
+      ],
+      "lufs": -28.02,
+      "keyboard": "desk",
+      "pace": "slow"
+     },
+     {
+      "start": 4.81,
+      "end": 9.43,
+      "dur": 4.42,
+      "kind": "burst",
+      "source": "1733",
+      "from": [
+       4.38,
+       8.8
+      ],
+      "lufs": -28.03,
+      "keyboard": "desk",
+      "pace": "slow"
+     },
+     {
+      "start": 9.63,
+      "end": 13.52,
+      "dur": 3.69,
+      "kind": "burst",
+      "source": "1733",
+      "from": [
+       8.97,
+       12.66
+      ],
+      "lufs": -28.0,
+      "keyboard": "desk",
+      "pace": "slow"
+     },
+     {
+      "start": 13.72,
+      "end": 17.64,
+      "dur": 3.72,
+      "kind": "burst",
+      "source": "1733",
+      "from": [
+       12.9,
+       16.62
+      ],
+      "lufs": -28.0,
+      "keyboard": "desk",
+      "pace": "slow"
+     },
+     {
+      "start": 17.84,
+      "end": 22.67,
+      "dur": 4.63,
+      "kind": "burst",
+      "source": "1733",
+      "from": [
+       16.87,
+       21.5
+      ],
+      "lufs": -28.02,
+      "keyboard": "desk",
+      "pace": "slow"
+     },
+     {
+      "start": 22.87,
+      "end": 26.88,
+      "dur": 3.81,
+      "kind": "burst",
+      "source": "1733",
+      "from": [
+       22.13,
+       25.94
+      ],
+      "lufs": -28.01,
+      "keyboard": "desk",
+      "pace": "slow"
+     },
+     {
+      "start": 27.08,
+      "end": 32.04,
+      "dur": 4.76,
+      "kind": "burst",
+      "source": "1733",
+      "from": [
+       26.45,
+       31.21
+      ],
+      "lufs": -28.02,
+      "keyboard": "desk",
+      "pace": "slow"
+     },
+     {
+      "start": 32.24,
+      "end": 39.04,
+      "dur": 6.6,
+      "kind": "burst",
+      "source": "1733",
+      "from": [
+       31.45,
+       38.05
+      ],
+      "lufs": -28.03,
+      "keyboard": "desk",
+      "pace": "slow"
+     },
+     {
+      "start": 39.24,
+      "end": 43.54,
+      "dur": 4.1,
+      "kind": "burst",
+      "source": "1729",
+      "from": [
+       0.0,
+       4.1
+      ],
+      "lufs": -28.04,
+      "keyboard": "laptop",
+      "pace": "slow"
+     },
+     {
+      "start": 43.74,
+      "end": 48.7799,
+      "dur": 4.84,
+      "kind": "burst",
+      "source": "1729",
+      "from": [
+       4.36,
+       9.2
+      ],
+      "lufs": -28.03,
+      "keyboard": "laptop",
+      "pace": "slow"
+     },
+     {
+      "start": 48.9799,
+      "end": 53.2699,
+      "dur": 4.09,
+      "kind": "burst",
+      "source": "1729",
+      "from": [
+       9.56,
+       13.65
+      ],
+      "lufs": -28.01,
+      "keyboard": "laptop",
+      "pace": "slow"
+     },
+     {
+      "start": 53.4699,
+      "end": 60.3699,
+      "dur": 6.7,
+      "kind": "burst",
+      "source": "1729",
+      "from": [
+       14.04,
+       20.74
+      ],
+      "lufs": -28.01,
+      "keyboard": "laptop",
+      "pace": "slow"
+     },
+     {
+      "start": 60.5699,
+      "end": 64.3299,
+      "dur": 3.56,
+      "kind": "burst",
+      "source": "1729",
+      "from": [
+       21.17,
+       24.73
+      ],
+      "lufs": -28.03,
+      "keyboard": "laptop",
+      "pace": "slow"
+     },
+     {
+      "start": 64.5299,
+      "end": 69.8099,
+      "dur": 5.08,
+      "kind": "burst",
+      "source": "1729",
+      "from": [
+       25.07,
+       30.15
+      ],
+      "lufs": -28.01,
+      "keyboard": "laptop",
+      "pace": "slow"
+     },
+     {
+      "start": 70.0099,
+      "end": 73.6299,
+      "dur": 3.42,
+      "kind": "burst",
+      "source": "1729",
+      "from": [
+       30.32,
+       33.74
+      ],
+      "lufs": -28.01,
+      "keyboard": "laptop",
+      "pace": "slow"
+     },
+     {
+      "start": 73.8299,
+      "end": 77.7649,
+      "dur": 3.735,
+      "kind": "burst",
+      "source": "1734",
+      "from": [
+       0.31,
+       4.045
+      ],
+      "lufs": -28.0,
+      "keyboard": "desk",
+      "pace": "fast"
+     },
+     {
+      "start": 77.9649,
+      "end": 81.8049,
+      "dur": 3.64,
+      "kind": "burst",
+      "source": "1734",
+      "from": [
+       10.78,
+       14.42
+      ],
+      "lufs": -28.0,
+      "keyboard": "desk",
+      "pace": "fast"
+     },
+     {
+      "start": 82.0049,
+      "end": 86.0249,
+      "dur": 3.82,
+      "kind": "burst",
+      "source": "1734",
+      "from": [
+       17.47,
+       21.29
+      ],
+      "lufs": -28.01,
+      "keyboard": "desk",
+      "pace": "fast"
+     },
+     {
+      "start": 86.2249,
+      "end": 91.9399,
+      "dur": 5.515,
+      "kind": "burst",
+      "source": "1734",
+      "from": [
+       28.31,
+       33.825
+      ],
+      "lufs": -28.0,
+      "keyboard": "desk",
+      "pace": "fast"
+     },
+     {
+      "start": 92.1399,
+      "end": 98.5899,
+      "dur": 6.25,
+      "kind": "burst",
+      "source": "1734",
+      "from": [
+       39.6,
+       45.85
+      ],
+      "lufs": -28.0,
+      "keyboard": "desk",
+      "pace": "fast"
+     },
+     {
+      "start": 98.7899,
+      "end": 104.1299,
+      "dur": 5.14,
+      "kind": "burst",
+      "source": "1734",
+      "from": [
+       53.45,
+       58.59
+      ],
+      "lufs": -28.0,
+      "keyboard": "desk",
+      "pace": "fast"
+     }
+    ],
+    "v": "226e4a539a"
+   }
+  },
+  "pages": {
+   "label": "ノートと鉛筆",
+   "events": {
+    "src": "sounds/pages.m4a",
+    "rate": 48000,
+    "channels": 1,
+    "samples": 3346492,
+    "marginSec": 0.1,
+    "lufs": {
+     "page": -25.0,
+     "pencil": -30.0
+    },
+    "gain": 1.0,
+    "gapSec": {
+     "page": [
+      20.0,
+      75.0
+     ],
+     "pencil": [
+      3.0,
+      15.0
+     ]
+    },
+    "clips": [
+     {
+      "start": 0.3,
+      "end": 1.6094,
+      "dur": 1.109,
+      "kind": "page",
+      "source": "2210",
+      "from": [
+       0,
+       1.109
+      ],
+      "lufs": -25.0
+     },
+     {
+      "start": 1.8094,
+      "end": 3.8635,
+      "dur": 1.854,
+      "kind": "page",
+      "source": "2211",
+      "from": [
+       0,
+       1.854
+      ],
+      "lufs": -25.0
+     },
+     {
+      "start": 4.0635,
+      "end": 6.0338,
+      "dur": 1.77,
+      "kind": "page",
+      "source": "2212",
+      "from": [
+       0,
+       1.77
+      ],
+      "lufs": -25.04
+     },
+     {
+      "start": 6.2338,
+      "end": 7.426,
+      "dur": 0.992,
+      "kind": "page",
+      "source": "2213",
+      "from": [
+       0,
+       0.992
+      ],
+      "lufs": -25.0
+     },
+     {
+      "start": 7.626,
+      "end": 9.0323,
+      "dur": 1.206,
+      "kind": "page",
+      "source": "2214",
+      "from": [
+       0,
+       1.206
+      ],
+      "lufs": -25.0
+     },
+     {
+      "start": 9.2323,
+      "end": 10.5417,
+      "dur": 1.109,
+      "kind": "page",
+      "source": "2215",
+      "from": [
+       0,
+       1.109
+      ],
+      "lufs": -25.0
+     },
+     {
+      "start": 10.7417,
+      "end": 12.1456,
+      "dur": 1.204,
+      "kind": "page",
+      "source": "2216",
+      "from": [
+       0,
+       1.204
+      ],
+      "lufs": -25.0
+     },
+     {
+      "start": 12.3456,
+      "end": 15.2756,
+      "dur": 2.73,
+      "kind": "page",
+      "source": "1413",
+      "from": [
+       0.44,
+       3.17
+      ],
+      "lufs": -25.0
+     },
+     {
+      "start": 15.4756,
+      "end": 18.6756,
+      "dur": 3.0,
+      "kind": "page",
+      "source": "1413",
+      "from": [
+       5.03,
+       8.03
+      ],
+      "lufs": -25.0
+     },
+     {
+      "start": 18.8756,
+      "end": 21.4056,
+      "dur": 2.33,
+      "kind": "page",
+      "source": "1413",
+      "from": [
+       10.75,
+       13.08
+      ],
+      "lufs": -25.0
+     },
+     {
+      "start": 21.6056,
+      "end": 24.3256,
+      "dur": 2.52,
+      "kind": "page",
+      "source": "1413",
+      "from": [
+       16.46,
+       18.98
+      ],
+      "lufs": -25.0
+     },
+     {
+      "start": 24.5256,
+      "end": 26.8956,
+      "dur": 2.17,
+      "kind": "page",
+      "source": "1413",
+      "from": [
+       21.48,
+       23.65
+      ],
+      "lufs": -25.0
+     },
+     {
+      "start": 27.0956,
+      "end": 29.8256,
+      "dur": 2.53,
+      "kind": "page",
+      "source": "1413",
+      "from": [
+       26.1,
+       28.63
+      ],
+      "lufs": -25.0
+     },
+     {
+      "start": 30.0256,
+      "end": 32.4656,
+      "dur": 2.24,
+      "kind": "page",
+      "source": "1413",
+      "from": [
+       31.3,
+       33.54
+      ],
+      "lufs": -25.0
+     },
+     {
+      "start": 32.6656,
+      "end": 35.2456,
+      "dur": 2.38,
+      "kind": "page",
+      "source": "1413",
+      "from": [
+       35.77,
+       38.15
+      ],
+      "lufs": -25.0
+     },
+     {
+      "start": 35.4456,
+      "end": 39.1656,
+      "dur": 3.52,
+      "kind": "pencil",
+      "source": "0221",
+      "from": [
+       0.0,
+       3.52
+      ],
+      "lufs": -30.0
+     },
+     {
+      "start": 39.3656,
+      "end": 43.6956,
+      "dur": 4.13,
+      "kind": "pencil",
+      "source": "0221",
+      "from": [
+       3.78,
+       7.91
+      ],
+      "lufs": -30.0
+     },
+     {
+      "start": 43.8956,
+      "end": 47.7606,
+      "dur": 3.665,
+      "kind": "pencil",
+      "source": "0221",
+      "from": [
+       8.14,
+       11.805
+      ],
+      "lufs": -30.0
+     },
+     {
+      "start": 47.9606,
+      "end": 52.7406,
+      "dur": 4.58,
+      "kind": "pencil",
+      "source": "0221",
+      "from": [
+       11.89,
+       16.47
+      ],
+      "lufs": -30.0
+     },
+     {
+      "start": 52.9406,
+      "end": 60.2906,
+      "dur": 7.15,
+      "kind": "pencil",
+      "source": "0221",
+      "from": [
+       16.66,
+       23.81
+      ],
+      "lufs": -30.0
+     },
+     {
+      "start": 60.4906,
+      "end": 64.9106,
+      "dur": 4.22,
+      "kind": "pencil",
+      "source": "0221",
+      "from": [
+       23.98,
+       28.2
+      ],
+      "lufs": -30.0
+     },
+     {
+      "start": 65.1106,
+      "end": 69.4186,
+      "dur": 4.108,
+      "kind": "pencil",
+      "source": "0221",
+      "from": [
+       28.45,
+       32.558
+      ],
+      "lufs": -30.0
+     }
+    ],
+    "v": "bcbc29d259"
+   }
+  }
+ }
+}
